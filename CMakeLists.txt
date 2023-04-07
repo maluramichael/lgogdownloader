@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.0 FATAL_ERROR)
-project (lgogdownloader LANGUAGES C CXX VERSION 3.9)
+project (lgogdownloader LANGUAGES C CXX VERSION 3.11)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
@@ -14,8 +14,6 @@ if(USE_QT_GUI)
   set(CMAKE_AUTOUIC ON)
 endif(USE_QT_GUI)
 
-find_program(READELF readelf DOC "Location of the readelf program")
-find_program(GREP grep DOC "Location of the grep program")
 find_package(Boost
   REQUIRED
   system

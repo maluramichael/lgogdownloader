@@ -47,6 +47,7 @@ struct cloudSaveFile {
     std::string location;
 };
 
+std::vector<std::string> Globals::vOwnedGamesIds;
 std::vector<DownloadInfo> vDownloadInfo;
 ThreadSafeQueue<gameFile> dlQueue;
 ThreadSafeQueue<cloudSaveFile> dlCloudSaveQueue;
@@ -316,18 +317,9 @@ int Downloader::login()
                 if (!boost::filesystem::remove(Globals::globalConfig.curlConf.sCookiePath))
                     std::cerr << "Failed to delete " << Globals::globalConfig.curlConf.sCookiePath << std::endl;
 
-            int iWebsiteLoginResult = gogWebsite->Login(email, password);
-            if (iWebsiteLoginResult < 1)
-            {
-                std::cerr << "HTTP: Login failed" << std::endl;
-                return 0;
-            }
-            else
-            {
-                std::cerr << "HTTP: Login successful" << std::endl;
-            }
+            int iLoginResult = gogWebsite->Login(email, password);
 
-            if (iWebsiteLoginResult < 2)
+            if (iLoginResult < 1)
             {
                 std::cerr << "Galaxy: Login failed" << std::endl;
                 return 0;
@@ -335,11 +327,20 @@ int Downloader::login()
             else
             {
                 std::cerr << "Galaxy: Login successful" << std::endl;
-
                 if (!Globals::galaxyConf.getJSON().empty())
                 {
                     this->saveGalaxyJSON();
                 }
+            }
+
+            if (gogWebsite->IsLoggedIn())
+            {
+                std::cerr << "HTTP: Login successful" << std::endl;
+            }
+            else
+            {
+                std::cerr << "HTTP: Login failed" << std::endl;
+                return 0;
             }
         }
     }
@@ -525,206 +526,8 @@ int Downloader::getGameDetails()
 
 int Downloader::listGames()
 {
-    if (Globals::globalConfig.bListDetails) // Detailed list
+    if (Globals::globalConfig.iListFormat == GlobalConstants::LIST_FORMAT_GAMES)
     {
-        if (this->games.empty()) {
-            int res = this->getGameDetails();
-            if (res > 0)
-                return res;
-        }
-
-        for (unsigned int i = 0; i < games.size(); ++i)
-        {
-            std::cout   << "gamename: " << games[i].gamename << std::endl
-                        << "product id: " << games[i].product_id << std::endl
-                        << "title: " << games[i].title << std::endl
-                        << "icon: " << games[i].icon << std::endl;
-            if (!games[i].serials.empty())
-                std::cout << "serials:" << std::endl << games[i].serials << std::endl;
-
-            // List installers
-            if (Globals::globalConfig.dlConf.bInstallers && !games[i].installers.empty())
-            {
-                std::cout << "installers: " << std::endl;
-                for (unsigned int j = 0; j < games[i].installers.size(); ++j)
-                {
-                    std::string filepath = games[i].installers[j].getFilepath();
-                    if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
-                    {
-                        if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
-                            std::cerr << "skipped blacklisted file " << filepath << std::endl;
-                        continue;
-                    }
-
-                    std::string languages = Util::getOptionNameString(games[i].installers[j].language, GlobalConstants::LANGUAGES);
-
-                    std::cout   << "\tid: " << games[i].installers[j].id << std::endl
-                                << "\tname: " << games[i].installers[j].name << std::endl
-                                << "\tpath: " << games[i].installers[j].path << std::endl
-                                << "\tsize: " << games[i].installers[j].size << std::endl
-                                << "\tupdated: " << (games[i].installers[j].updated ? "True" : "False") << std::endl
-                                << "\tlanguage: " << languages << std::endl
-                                << "\tversion: " << games[i].installers[j].version << std::endl
-                                << std::endl;
-                }
-            }
-            // List extras
-            if (Globals::globalConfig.dlConf.bExtras && !games[i].extras.empty())
-            {
-                std::cout << "extras: " << std::endl;
-                for (unsigned int j = 0; j < games[i].extras.size(); ++j)
-                {
-                    std::string filepath = games[i].extras[j].getFilepath();
-                    if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
-                    {
-                        if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
-                            std::cerr << "skipped blacklisted file " << filepath << std::endl;
-                        continue;
-                    }
-
-                    std::cout   << "\tid: " << games[i].extras[j].id << std::endl
-                                << "\tname: " << games[i].extras[j].name << std::endl
-                                << "\tpath: " << games[i].extras[j].path << std::endl
-                                << "\tsize: " << games[i].extras[j].size << std::endl
-                                << std::endl;
-                }
-            }
-            // List patches
-            if (Globals::globalConfig.dlConf.bPatches && !games[i].patches.empty())
-            {
-                std::cout << "patches: " << std::endl;
-                for (unsigned int j = 0; j < games[i].patches.size(); ++j)
-                {
-                    std::string filepath = games[i].patches[j].getFilepath();
-                    if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
-                    {
-                        if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
-                            std::cerr << "skipped blacklisted file " << filepath << std::endl;
-                        continue;
-                    }
-
-                    std::string languages = Util::getOptionNameString(games[i].patches[j].language, GlobalConstants::LANGUAGES);
-
-                    std::cout   << "\tid: " << games[i].patches[j].id << std::endl
-                                << "\tname: " << games[i].patches[j].name << std::endl
-                                << "\tpath: " << games[i].patches[j].path << std::endl
-                                << "\tsize: " << games[i].patches[j].size << std::endl
-                                << "\tupdated: " << (games[i].patches[j].updated ? "True" : "False") << std::endl
-                                << "\tlanguage: " << languages << std::endl
-                                << "\tversion: " << games[i].patches[j].version << std::endl
-                                << std::endl;
-                }
-            }
-            // List language packs
-            if (Globals::globalConfig.dlConf.bLanguagePacks && !games[i].languagepacks.empty())
-            {
-                std::cout << "language packs: " << std::endl;
-                for (unsigned int j = 0; j < games[i].languagepacks.size(); ++j)
-                {
-                    std::string filepath = games[i].languagepacks[j].getFilepath();
-                    if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
-                    {
-                        if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
-                            std::cerr << "skipped blacklisted file " << filepath << std::endl;
-                        continue;
-                    }
-
-                    std::cout   << "\tid: " << games[i].languagepacks[j].id << std::endl
-                                << "\tname: " << games[i].languagepacks[j].name << std::endl
-                                << "\tpath: " << games[i].languagepacks[j].path << std::endl
-                                << "\tsize: " << games[i].languagepacks[j].size << std::endl
-                                << std::endl;
-                }
-            }
-            if (Globals::globalConfig.dlConf.bDLC && !games[i].dlcs.empty())
-            {
-                std::cout << "DLCs: " << std::endl;
-                for (unsigned int j = 0; j < games[i].dlcs.size(); ++j)
-                {
-                    if (!games[i].dlcs[j].serials.empty())
-                    {
-                        std::cout   << "\tDLC gamename: " << games[i].dlcs[j].gamename << std::endl
-                                    << "\tserials:" << games[i].dlcs[j].serials << std::endl;
-                    }
-
-                    for (unsigned int k = 0; k < games[i].dlcs[j].installers.size(); ++k)
-                    {
-                        std::string filepath = games[i].dlcs[j].installers[k].getFilepath();
-                        if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
-                        {
-                            if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
-                                std::cerr << "skipped blacklisted file " << filepath << std::endl;
-                            continue;
-                        }
-
-                        std::cout   << "\tgamename: " << games[i].dlcs[j].gamename << std::endl
-                                    << "\tproduct id: " << games[i].dlcs[j].product_id << std::endl
-                                    << "\tid: " << games[i].dlcs[j].installers[k].id << std::endl
-                                    << "\tname: " << games[i].dlcs[j].installers[k].name << std::endl
-                                    << "\tpath: " << games[i].dlcs[j].installers[k].path << std::endl
-                                    << "\tsize: " << games[i].dlcs[j].installers[k].size << std::endl
-                                    << "\tupdated: " << (games[i].dlcs[j].installers[k].updated ? "True" : "False") << std::endl
-                                    << "\tversion: " << games[i].dlcs[j].installers[k].version << std::endl
-                                    << std::endl;
-                    }
-                    for (unsigned int k = 0; k < games[i].dlcs[j].patches.size(); ++k)
-                    {
-                        std::string filepath = games[i].dlcs[j].patches[k].getFilepath();
-                        if (Globals::globalConfig.blacklist.isBlacklisted(filepath)) {
-                            if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
-                                std::cerr << "skipped blacklisted file " << filepath << std::endl;
-                            continue;
-                        }
-
-                        std::cout   << "\tgamename: " << games[i].dlcs[j].gamename << std::endl
-                                    << "\tproduct id: " << games[i].dlcs[j].product_id << std::endl
-                                    << "\tid: " << games[i].dlcs[j].patches[k].id << std::endl
-                                    << "\tname: " << games[i].dlcs[j].patches[k].name << std::endl
-                                    << "\tpath: " << games[i].dlcs[j].patches[k].path << std::endl
-                                    << "\tsize: " << games[i].dlcs[j].patches[k].size << std::endl
-                                    << "\tversion: " << games[i].dlcs[j].patches[k].version << std::endl
-                                    << std::endl;
-                    }
-                    for (unsigned int k = 0; k < games[i].dlcs[j].extras.size(); ++k)
-                    {
-                        std::string filepath = games[i].dlcs[j].extras[k].getFilepath();
-                        if (Globals::globalConfig.blacklist.isBlacklisted(filepath)) {
-                            if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
-                                std::cerr << "skipped blacklisted file " << filepath << std::endl;
-                            continue;
-                        }
-
-                        std::cout   << "\tgamename: " << games[i].dlcs[j].gamename << std::endl
-                                    << "\tproduct id: " << games[i].dlcs[j].product_id << std::endl
-                                    << "\tid: " << games[i].dlcs[j].extras[k].id << std::endl
-                                    << "\tname: " << games[i].dlcs[j].extras[k].name << std::endl
-                                    << "\tpath: " << games[i].dlcs[j].extras[k].path << std::endl
-                                    << "\tsize: " << games[i].dlcs[j].extras[k].size << std::endl
-                                    << std::endl;
-                    }
-                    for (unsigned int k = 0; k < games[i].dlcs[j].languagepacks.size(); ++k)
-                    {
-                        std::string filepath = games[i].dlcs[j].languagepacks[k].getFilepath();
-                        if (Globals::globalConfig.blacklist.isBlacklisted(filepath)) {
-                            if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
-                                std::cerr << "skipped blacklisted file " << filepath << std::endl;
-                            continue;
-                        }
-
-                        std::cout   << "\tgamename: " << games[i].dlcs[j].gamename << std::endl
-                                    << "\tproduct id: " << games[i].dlcs[j].product_id << std::endl
-                                    << "\tid: " << games[i].dlcs[j].languagepacks[k].id << std::endl
-                                    << "\tname: " << games[i].dlcs[j].languagepacks[k].name << std::endl
-                                    << "\tpath: " << games[i].dlcs[j].languagepacks[k].path << std::endl
-                                    << "\tsize: " << games[i].dlcs[j].languagepacks[k].size << std::endl
-                                    << std::endl;
-                    }
-                }
-            }
-        }
-    }
-    else
-    {   // List game names
         if (gameItems.empty())
             this->getGameList();
 
@@ -742,20 +545,39 @@ int Downloader::listGames()
                 std::cout << "+> " << gameItems[i].dlcnames[j] << std::endl;
         }
     }
-
-    return 0;
-}
-
-int Downloader::listTags()
-{
-    std::map<std::string, std::string> tags;
-    tags = gogWebsite->getTags();
-
-    if (!tags.empty())
+    else if (Globals::globalConfig.iListFormat == GlobalConstants::LIST_FORMAT_TAGS)
     {
-        for (auto tag : tags)
+        std::map<std::string, std::string> tags;
+        tags = gogWebsite->getTags();
+
+        if (!tags.empty())
         {
-            std::cout << tag.first  << " = " << tag.second << std::endl;
+            for (auto tag : tags)
+            {
+                std::cout << tag.first  << " = " << tag.second << std::endl;
+            }
+        }
+    }
+    else
+    {
+        if (this->games.empty()) {
+            int res = this->getGameDetails();
+            if (res > 0)
+                return res;
+        }
+
+        if (Globals::globalConfig.iListFormat == GlobalConstants::LIST_FORMAT_DETAILS_JSON)
+        {
+            Json::Value json(Json::arrayValue);
+            for (auto game : this->games)
+                json.append(game.getDetailsAsJson());
+
+            std::cout << json << std::endl;
+        }
+        else if (Globals::globalConfig.iListFormat == GlobalConstants::LIST_FORMAT_DETAILS_TEXT)
+        {
+            for (auto game : this->games)
+                printGameDetailsAsText(game);
         }
     }
 
@@ -913,6 +735,30 @@ void Downloader::download()
 
     if (!dlQueue.empty())
     {
+        unsigned long long totalSizeBytes = iTotalRemainingBytes.load();
+        std::cout << "Total size: " << Util::makeSizeString(totalSizeBytes) << std::endl;
+
+        if (Globals::globalConfig.dlConf.bFreeSpaceCheck)
+        {
+            boost::filesystem::path path = boost::filesystem::absolute(Globals::globalConfig.dirConf.sDirectory);
+            while(!boost::filesystem::exists(path) && !path.empty())
+            {
+                path = path.parent_path();
+            }
+
+            if(boost::filesystem::exists(path) && !path.empty())
+            {
+                boost::filesystem::space_info space = boost::filesystem::space(path);
+
+                if (space.available < totalSizeBytes)
+                {
+                    std::cerr << "Not enough free space in " << boost::filesystem::canonical(path) << " ("
+                    << Util::makeSizeString(space.available) << ")"<< std::endl;
+                    exit(1);
+                }
+            }
+        }
+
         // Limit thread count to number of items in download queue
         unsigned int iThreads = std::min(Globals::globalConfig.iThreads, static_cast<unsigned int>(dlQueue.size()));
 
@@ -2325,7 +2171,6 @@ void Downloader::updateCache()
     Globals::globalConfig.dlConf.iInstallerPlatform = Util::getOptionValue("all", GlobalConstants::PLATFORMS);
     Globals::globalConfig.dlConf.vLanguagePriority.clear();
     Globals::globalConfig.dlConf.vPlatformPriority.clear();
-    Globals::globalConfig.sIgnoreDLCCountRegex = ".*"; // Ignore DLC count for all games because GOG doesn't report DLC count correctly
 
     this->getGameList();
     this->getGameDetails();
@@ -3703,23 +3548,23 @@ void Downloader::getGameDetailsThread(Config config, const unsigned int& tid)
         game = galaxy->productInfoJsonToGameDetails(product_info, conf.dlConf);
         game.filterWithPriorities(conf);
 
-        Json::Value gameDetailsJSON;
-
-        if (!game_item.gamedetailsjson.empty())
-            gameDetailsJSON = game_item.gamedetailsjson;
-
-        if (conf.dlConf.bSaveSerials && game.serials.empty())
+        if ((conf.dlConf.bSaveSerials && game.serials.empty())
+            || (conf.dlConf.bSaveChangelogs && game.changelog.empty())
+        )
         {
+            Json::Value gameDetailsJSON;
+
+            if (!game_item.gamedetailsjson.empty())
+                gameDetailsJSON = game_item.gamedetailsjson;
+
             if (gameDetailsJSON.empty())
                 gameDetailsJSON = website->getGameDetailsJSON(game_item.id);
-            game.serials = Downloader::getSerialsFromJSON(gameDetailsJSON);
-        }
 
-        if (conf.dlConf.bSaveChangelogs && game.changelog.empty())
-        {
-            if (gameDetailsJSON.empty())
-                gameDetailsJSON = website->getGameDetailsJSON(game_item.id);
-            game.changelog = Downloader::getChangelogFromJSON(gameDetailsJSON);
+            if (conf.dlConf.bSaveSerials && game.serials.empty())
+                game.serials = Downloader::getSerialsFromJSON(gameDetailsJSON);
+
+            if (conf.dlConf.bSaveChangelogs && game.changelog.empty())
+                game.changelog = Downloader::getChangelogFromJSON(gameDetailsJSON);
         }
 
         game.makeFilepaths(conf.dirConf);
@@ -4050,10 +3895,30 @@ void Downloader::galaxyInstallGameById(const std::string& product_id, int build_
         dlQueueGalaxy.push(items[i]);
     }
 
-    double totalSizeMB = static_cast<double>(totalSize)/1024/1024;
     std::cout << game_title << std::endl;
     std::cout << "Files: " << items.size() << std::endl;
-    std::cout << "Total size installed: " << totalSizeMB << " MB" << std::endl;
+    std::cout << "Total size installed: " << Util::makeSizeString(totalSize) << std::endl;
+
+    if (Globals::globalConfig.dlConf.bFreeSpaceCheck)
+    {
+        boost::filesystem::path path = boost::filesystem::absolute(install_path);
+        while(!boost::filesystem::exists(path) && !path.empty())
+        {
+            path = path.parent_path();
+        }
+
+        if(boost::filesystem::exists(path) && !path.empty())
+        {
+            boost::filesystem::space_info space = boost::filesystem::space(path);
+
+            if (space.available < totalSize)
+            {
+                std::cerr << "Not enough free space in " << boost::filesystem::canonical(path) << " ("
+                << Util::makeSizeString(space.available) << ")"<< std::endl;
+                exit(1);
+            }
+        }
+    }
 
     // Limit thread count to number of items in download queue
     unsigned int iThreads = std::min(Globals::globalConfig.iThreads, static_cast<unsigned int>(dlQueueGalaxy.size()));
@@ -5345,19 +5210,6 @@ void Downloader::galaxyInstallGame_MojoSetupHack(const std::string& product_id)
             }
         }
 
-        // Create directories
-        for (std::uintmax_t i = 0; i < vZipDirectories.size(); ++i)
-        {
-            if (!boost::filesystem::exists(vZipDirectories[i].filepath))
-            {
-                if (!boost::filesystem::create_directories(vZipDirectories[i].filepath))
-                {
-                    std::cerr << "Failed to create directory " << vZipDirectories[i].filepath << std::endl;
-                    return;
-                }
-            }
-        }
-
         // Set start and end offsets for split files
         // Create map of split files for combining them later
         splitFilesMap mSplitFiles;
@@ -5395,10 +5247,12 @@ void Downloader::galaxyInstallGame_MojoSetupHack(const std::string& product_id)
         }
 
         // Add files to download queue
+        uintmax_t totalSize = 0;
         for (std::uintmax_t i = 0; i < vZipFiles.size(); ++i)
         {
             dlQueueGalaxy_MojoSetupHack.push(vZipFiles[i]);
             iTotalRemainingBytes.fetch_add(vZipFiles[i].comp_size);
+            totalSize += vZipFiles[i].uncomp_size;
         }
 
         // Add symlinks to download queue
@@ -5406,6 +5260,45 @@ void Downloader::galaxyInstallGame_MojoSetupHack(const std::string& product_id)
         {
             dlQueueGalaxy_MojoSetupHack.push(vZipFilesSymlink[i]);
             iTotalRemainingBytes.fetch_add(vZipFilesSymlink[i].comp_size);
+            totalSize += vZipFilesSymlink[i].uncomp_size;
+        }
+
+        std::cout << game.title << std::endl;
+        std::cout << "Files: " << dlQueueGalaxy_MojoSetupHack.size() << std::endl;
+        std::cout << "Total size installed: " << Util::makeSizeString(totalSize) << std::endl;
+
+        if (Globals::globalConfig.dlConf.bFreeSpaceCheck)
+        {
+            boost::filesystem::path path = boost::filesystem::absolute(install_path);
+            while(!boost::filesystem::exists(path) && !path.empty())
+            {
+                path = path.parent_path();
+            }
+
+            if(boost::filesystem::exists(path) && !path.empty())
+            {
+                boost::filesystem::space_info space = boost::filesystem::space(path);
+
+                if (space.available < totalSize)
+                {
+                    std::cerr << "Not enough free space in " << boost::filesystem::canonical(path) << " ("
+                    << Util::makeSizeString(space.available) << ")"<< std::endl;
+                    exit(1);
+                }
+            }
+        }
+
+        // Create directories
+        for (std::uintmax_t i = 0; i < vZipDirectories.size(); ++i)
+        {
+            if (!boost::filesystem::exists(vZipDirectories[i].filepath))
+            {
+                if (!boost::filesystem::create_directories(vZipDirectories[i].filepath))
+                {
+                    std::cerr << "Failed to create directory " << vZipDirectories[i].filepath << std::endl;
+                    return;
+                }
+            }
         }
 
         // Limit thread count to number of items in download queue
@@ -6294,4 +6187,194 @@ std::string Downloader::getGalaxyInstallDirectory(galaxyAPI *galaxyHandle, const
     }
 
     return install_directory;
+}
+
+void Downloader::printGameDetailsAsText(gameDetails& game)
+{
+    std::cout   << "gamename: " << game.gamename << std::endl
+                << "product id: " << game.product_id << std::endl
+                << "title: " << game.title << std::endl
+                << "icon: " << game.icon << std::endl;
+    if (!game.serials.empty())
+        std::cout << "serials:" << std::endl << game.serials << std::endl;
+
+    // List installers
+    if (Globals::globalConfig.dlConf.bInstallers && !game.installers.empty())
+    {
+        std::cout << "installers: " << std::endl;
+        for (unsigned int j = 0; j < game.installers.size(); ++j)
+        {
+            std::string filepath = game.installers[j].getFilepath();
+            if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
+            {
+                if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
+                    std::cerr << "skipped blacklisted file " << filepath << std::endl;
+                continue;
+            }
+
+            std::string languages = Util::getOptionNameString(game.installers[j].language, GlobalConstants::LANGUAGES);
+
+            std::cout   << "\tid: " << game.installers[j].id << std::endl
+                        << "\tname: " << game.installers[j].name << std::endl
+                        << "\tpath: " << game.installers[j].path << std::endl
+                        << "\tsize: " << game.installers[j].size << std::endl
+                        << "\tupdated: " << (game.installers[j].updated ? "True" : "False") << std::endl
+                        << "\tlanguage: " << languages << std::endl
+                        << "\tversion: " << game.installers[j].version << std::endl
+                        << std::endl;
+        }
+    }
+    // List extras
+    if (Globals::globalConfig.dlConf.bExtras && !game.extras.empty())
+    {
+        std::cout << "extras: " << std::endl;
+        for (unsigned int j = 0; j < game.extras.size(); ++j)
+        {
+            std::string filepath = game.extras[j].getFilepath();
+            if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
+            {
+                if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
+                    std::cerr << "skipped blacklisted file " << filepath << std::endl;
+                continue;
+            }
+
+            std::cout   << "\tid: " << game.extras[j].id << std::endl
+                        << "\tname: " << game.extras[j].name << std::endl
+                        << "\tpath: " << game.extras[j].path << std::endl
+                        << "\tsize: " << game.extras[j].size << std::endl
+                        << std::endl;
+        }
+    }
+    // List patches
+    if (Globals::globalConfig.dlConf.bPatches && !game.patches.empty())
+    {
+        std::cout << "patches: " << std::endl;
+        for (unsigned int j = 0; j < game.patches.size(); ++j)
+        {
+            std::string filepath = game.patches[j].getFilepath();
+            if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
+            {
+                if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
+                    std::cerr << "skipped blacklisted file " << filepath << std::endl;
+                continue;
+            }
+
+            std::string languages = Util::getOptionNameString(game.patches[j].language, GlobalConstants::LANGUAGES);
+
+            std::cout   << "\tid: " << game.patches[j].id << std::endl
+                        << "\tname: " << game.patches[j].name << std::endl
+                        << "\tpath: " << game.patches[j].path << std::endl
+                        << "\tsize: " << game.patches[j].size << std::endl
+                        << "\tupdated: " << (game.patches[j].updated ? "True" : "False") << std::endl
+                        << "\tlanguage: " << languages << std::endl
+                        << "\tversion: " << game.patches[j].version << std::endl
+                        << std::endl;
+        }
+    }
+    // List language packs
+    if (Globals::globalConfig.dlConf.bLanguagePacks && !game.languagepacks.empty())
+    {
+        std::cout << "language packs: " << std::endl;
+        for (unsigned int j = 0; j < game.languagepacks.size(); ++j)
+        {
+            std::string filepath = game.languagepacks[j].getFilepath();
+            if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
+            {
+                if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
+                    std::cerr << "skipped blacklisted file " << filepath << std::endl;
+                continue;
+            }
+
+            std::cout   << "\tid: " << game.languagepacks[j].id << std::endl
+                        << "\tname: " << game.languagepacks[j].name << std::endl
+                        << "\tpath: " << game.languagepacks[j].path << std::endl
+                        << "\tsize: " << game.languagepacks[j].size << std::endl
+                        << std::endl;
+        }
+    }
+    if (Globals::globalConfig.dlConf.bDLC && !game.dlcs.empty())
+    {
+        std::cout << "DLCs: " << std::endl;
+        for (unsigned int j = 0; j < game.dlcs.size(); ++j)
+        {
+            if (!game.dlcs[j].serials.empty())
+            {
+                std::cout   << "\tDLC gamename: " << game.dlcs[j].gamename << std::endl
+                            << "\tserials:" << game.dlcs[j].serials << std::endl;
+            }
+
+            for (unsigned int k = 0; k < game.dlcs[j].installers.size(); ++k)
+            {
+                std::string filepath = game.dlcs[j].installers[k].getFilepath();
+                if (Globals::globalConfig.blacklist.isBlacklisted(filepath))
+                {
+                    if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
+                        std::cerr << "skipped blacklisted file " << filepath << std::endl;
+                    continue;
+                }
+
+                std::cout   << "\tgamename: " << game.dlcs[j].gamename << std::endl
+                            << "\tproduct id: " << game.dlcs[j].product_id << std::endl
+                            << "\tid: " << game.dlcs[j].installers[k].id << std::endl
+                            << "\tname: " << game.dlcs[j].installers[k].name << std::endl
+                            << "\tpath: " << game.dlcs[j].installers[k].path << std::endl
+                            << "\tsize: " << game.dlcs[j].installers[k].size << std::endl
+                            << "\tupdated: " << (game.dlcs[j].installers[k].updated ? "True" : "False") << std::endl
+                            << "\tversion: " << game.dlcs[j].installers[k].version << std::endl
+                            << std::endl;
+            }
+            for (unsigned int k = 0; k < game.dlcs[j].patches.size(); ++k)
+            {
+                std::string filepath = game.dlcs[j].patches[k].getFilepath();
+                if (Globals::globalConfig.blacklist.isBlacklisted(filepath)) {
+                    if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
+                        std::cerr << "skipped blacklisted file " << filepath << std::endl;
+                    continue;
+                }
+
+                std::cout   << "\tgamename: " << game.dlcs[j].gamename << std::endl
+                            << "\tproduct id: " << game.dlcs[j].product_id << std::endl
+                            << "\tid: " << game.dlcs[j].patches[k].id << std::endl
+                            << "\tname: " << game.dlcs[j].patches[k].name << std::endl
+                            << "\tpath: " << game.dlcs[j].patches[k].path << std::endl
+                            << "\tsize: " << game.dlcs[j].patches[k].size << std::endl
+                            << "\tversion: " << game.dlcs[j].patches[k].version << std::endl
+                            << std::endl;
+            }
+            for (unsigned int k = 0; k < game.dlcs[j].extras.size(); ++k)
+            {
+                std::string filepath = game.dlcs[j].extras[k].getFilepath();
+                if (Globals::globalConfig.blacklist.isBlacklisted(filepath)) {
+                    if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
+                        std::cerr << "skipped blacklisted file " << filepath << std::endl;
+                    continue;
+                }
+
+                std::cout   << "\tgamename: " << game.dlcs[j].gamename << std::endl
+                            << "\tproduct id: " << game.dlcs[j].product_id << std::endl
+                            << "\tid: " << game.dlcs[j].extras[k].id << std::endl
+                            << "\tname: " << game.dlcs[j].extras[k].name << std::endl
+                            << "\tpath: " << game.dlcs[j].extras[k].path << std::endl
+                            << "\tsize: " << game.dlcs[j].extras[k].size << std::endl
+                            << std::endl;
+            }
+            for (unsigned int k = 0; k < game.dlcs[j].languagepacks.size(); ++k)
+            {
+                std::string filepath = game.dlcs[j].languagepacks[k].getFilepath();
+                if (Globals::globalConfig.blacklist.isBlacklisted(filepath)) {
+                    if (Globals::globalConfig.iMsgLevel >= MSGLEVEL_VERBOSE)
+                        std::cerr << "skipped blacklisted file " << filepath << std::endl;
+                    continue;
+                }
+
+                std::cout   << "\tgamename: " << game.dlcs[j].gamename << std::endl
+                            << "\tproduct id: " << game.dlcs[j].product_id << std::endl
+                            << "\tid: " << game.dlcs[j].languagepacks[k].id << std::endl
+                            << "\tname: " << game.dlcs[j].languagepacks[k].name << std::endl
+                            << "\tpath: " << game.dlcs[j].languagepacks[k].path << std::endl
+                            << "\tsize: " << game.dlcs[j].languagepacks[k].size << std::endl
+                            << std::endl;
+            }
+        }
+    }
 }

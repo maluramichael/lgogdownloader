@@ -47,6 +47,7 @@ struct DownloadConfig
     bool bSaveChangelogs;
     bool bSaveSerials;
     bool bAutomaticXMLCreation;
+    bool bFreeSpaceCheck;
 
     bool bInstallers;
     bool bExtras;
@@ -239,8 +240,6 @@ class Config
         bool bDownload;
         bool bRepair;
         bool bUpdated;
-        bool bList;
-        bool bListDetails;
         bool bCheckStatus;
         bool bShowWishlist;
         bool bNotifications;
@@ -255,7 +254,6 @@ class Config
 #ifdef USE_QT_GUI_LOGIN
         bool bEnableLoginGUI;
 #endif
-        bool bListTags;
 
         // Cache
         bool bUseCache;
@@ -322,6 +320,7 @@ class Config
         size_t iChunkSize;
         int iProgressInterval;
         int iMsgLevel;
+        unsigned int iListFormat;
 };
 
 #endif // CONFIG_H__

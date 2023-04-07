@@ -70,7 +70,7 @@ namespace Util
     void filepathReplaceReservedStrings(std::string& str, const std::string& gamename, const unsigned int& platformId = 0, const std::string& dlcname = "");
     void setFilePermissions(const boost::filesystem::path& path, const boost::filesystem::perms& permissions);
     int getTerminalWidth();
-    void getDownloaderUrlsFromJSON(const Json::Value &root, std::vector<std::string> &urls);
+    void getManualUrlsFromJSON(const Json::Value &root, std::vector<std::string> &urls);
     std::vector<std::string> getDLCNamesFromJSON(const Json::Value &root);
     std::string getHomeDir();
     std::string getConfigHome();
@@ -92,6 +92,7 @@ namespace Util
     curl_off_t CurlWriteMemoryCallback(char *ptr, curl_off_t size, curl_off_t nmemb, void *userp);
     curl_off_t CurlWriteChunkMemoryCallback(void *contents, curl_off_t size, curl_off_t nmemb, void *userp);
     curl_off_t CurlReadChunkMemoryCallback(void *contents, curl_off_t size, curl_off_t nmemb, ChunkMemoryStruct *userp);
+    std::string makeSizeString(const unsigned long long& iSizeInBytes);
 
     template<typename ... Args> std::string formattedString(const std::string& format, Args ... args)
     {

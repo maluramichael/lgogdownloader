@@ -406,7 +406,7 @@ int Util::replaceAllString(std::string& str, const std::string& to_replace, cons
 
         pos = str.find(to_replace, pos + to_replace.length());
     } while(pos != std::string::npos);
-    
+
     return 1;
 }
 
@@ -480,18 +480,18 @@ int Util::getTerminalWidth()
 }
 
 
-void Util::getDownloaderUrlsFromJSON(const Json::Value &root, std::vector<std::string> &urls)
+void Util::getManualUrlsFromJSON(const Json::Value &root, std::vector<std::string> &urls)
 {
     if(root.size() > 0) {
         for(Json::ValueConstIterator it = root.begin() ; it != root.end() ; ++it)
         {
-            if (it.key() == "downloaderUrl")
+            if (it.key() == "manualUrl")
             {
                 Json::Value url = *it;
                 urls.push_back(url.asString());
             }
             else
-                getDownloaderUrlsFromJSON(*it, urls);
+                getManualUrlsFromJSON(*it, urls);
         }
     }
     return;
@@ -500,15 +500,14 @@ void Util::getDownloaderUrlsFromJSON(const Json::Value &root, std::vector<std::s
 std::vector<std::string> Util::getDLCNamesFromJSON(const Json::Value &root)
 {
     std::vector<std::string> urls, dlcnames;
-    getDownloaderUrlsFromJSON(root, urls);
+    getManualUrlsFromJSON(root, urls);
 
     for (unsigned int i = 0; i < urls.size(); ++i)
     {
         std::string gamename;
-        if (urls[i].find(GlobalConstants::PROTOCOL_PREFIX) == std::string::npos)
-            continue;
+        std::string url_prefix = "/downloads/";
 
-        gamename.assign(urls[i].begin()+urls[i].find(GlobalConstants::PROTOCOL_PREFIX)+GlobalConstants::PROTOCOL_PREFIX.length(), urls[i].begin()+urls[i].find_last_of("/"));
+        gamename.assign(urls[i].begin()+urls[i].find(url_prefix)+url_prefix.length(), urls[i].begin()+urls[i].find_last_of("/"));
         bool bDuplicate = false;
         for (unsigned int j = 0; j < dlcnames.size(); ++j)
         {
@@ -772,7 +771,6 @@ void Util::CurlHandleSetDefaultOptions(CURL* curlhandle, const CurlConfig& conf)
     curl_easy_setopt(curlhandle, CURLOPT_CONNECTTIMEOUT, conf.iTimeout);
     curl_easy_setopt(curlhandle, CURLOPT_FAILONERROR, true);
     curl_easy_setopt(curlhandle, CURLOPT_COOKIEFILE, conf.sCookiePath.c_str());
-    curl_easy_setopt(curlhandle, CURLOPT_COOKIEJAR, conf.sCookiePath.c_str());
     curl_easy_setopt(curlhandle, CURLOPT_SSL_VERIFYPEER, conf.bVerifyPeer);
     curl_easy_setopt(curlhandle, CURLOPT_VERBOSE, conf.bVerbose);
     curl_easy_setopt(curlhandle, CURLOPT_MAX_RECV_SPEED_LARGE, conf.iDownloadRate);
@@ -894,4 +892,20 @@ curl_off_t Util::CurlReadChunkMemoryCallback(void *contents, curl_off_t size, cu
     mem->memory += realsize;
 
     return realsize;
+}
+
+std::string Util::makeSizeString(const unsigned long long& iSizeInBytes)
+{
+    auto units = { "B", "kB", "MB", "GB", "TB", "PB" };
+    std::string size_unit = "B";
+    double iSize = static_cast<double>(iSizeInBytes);
+    for (auto unit : units)
+    {
+        size_unit = unit;
+        if (iSize < 1024)
+            break;
+
+        iSize /= 1024;
+    }
+    return formattedString("%0.2f %s", iSize, size_unit.c_str());
 }

@@ -20,11 +20,13 @@ class Website
         Website();
         int Login(const std::string& email, const std::string& password);
         std::string getResponse(const std::string& url);
+        Json::Value getResponseJson(const std::string& url);
         Json::Value getGameDetailsJSON(const std::string& gameid);
         std::vector<gameItem> getGames();
         std::vector<wishlistItem> getWishlistItems();
         bool IsLoggedIn();
         std::map<std::string, std::string> getTags();
+        std::vector<std::string> getOwnedGamesIds();
         virtual ~Website();
     protected:
     private:
@@ -33,6 +35,12 @@ class Website
         bool IsLoggedInComplex(const std::string& email);
         std::map<std::string, std::string> getTagsFromJson(const Json::Value& json);
         int retries;
+        std::string LoginGetAuthCode(const std::string& email, const std::string& password);
+        std::string LoginGetAuthCodeCurl(const std::string& login_form_html, const std::string& email, const std::string& password);
+        std::string LoginGetAuthCodeBrowser(const std::string& auth_url);
+        #ifdef USE_QT_GUI_LOGIN
+        std::string LoginGetAuthCodeGUI(const std::string& email, const std::string& password);
+        #endif
 };
 
 #endif // WEBSITE_H

@@ -161,6 +161,13 @@ int main(int argc, char *argv[])
     }
     include_options_text += "Separate with \",\" to use multiple values";
 
+    // Create help text for --list-format option
+    std::string list_format_text = "List games/tags\n";
+    for (unsigned int i = 0; i < GlobalConstants::LIST_FORMAT.size(); ++i)
+    {
+        list_format_text += GlobalConstants::LIST_FORMAT[i].str + " = " + GlobalConstants::LIST_FORMAT[i].regexp + "\n";
+    }
+
     std::string galaxy_product_id_install;
     std::string galaxy_product_id_show_builds;
     std::string galaxy_product_id_show_cloud_paths;
@@ -183,6 +190,7 @@ int main(int argc, char *argv[])
     bpo::options_description options_cfg_only;
     bpo::options_description options_cfg_all("Configuration");
     bool bClearUpdateNotifications = false;
+    bool bList = false;
     try
     {
         bool bInsecure = false;
@@ -202,14 +210,14 @@ int main(int argc, char *argv[])
         std::string sGalaxyLanguage;
         std::string sGalaxyArch;
         std::string sGalaxyCDN;
+        std::string sListFormat;
         Globals::globalConfig.bReport = false;
         // Commandline options (no config file)
         options_cli_no_cfg.add_options()
             ("help,h", "Print help message")
             ("version", "Print version information")
             ("login", bpo::value<bool>(&Globals::globalConfig.bLogin)->zero_tokens()->default_value(false), "Login")
-            ("list", bpo::value<bool>(&Globals::globalConfig.bList)->zero_tokens()->default_value(false), "List games")
-            ("list-details", bpo::value<bool>(&Globals::globalConfig.bListDetails)->zero_tokens()->default_value(false), "List games with detailed info")
+            ("list", bpo::value<std::string>(&sListFormat)->implicit_value("games"), list_format_text.c_str())
             ("download", bpo::value<bool>(&Globals::globalConfig.bDownload)->zero_tokens()->default_value(false), "Download")
             ("repair", bpo::value<bool>(&Globals::globalConfig.bRepair)->zero_tokens()->default_value(false), "Repair downloaded files\nUse --repair --download to redownload files when filesizes don't match (possibly different version). Redownload will rename the old file (appends .old to filename)")
             ("game", bpo::value<std::string>(&Globals::globalConfig.sGameRegex)->default_value(""), "Set regular expression filter\nfor download/list/repair (Perl syntax)")
@@ -238,7 +246,6 @@ int main(int argc, char *argv[])
 #ifdef USE_QT_GUI_LOGIN
             ("enable-login-gui", bpo::value<bool>(&Globals::globalConfig.bEnableLoginGUI)->zero_tokens()->default_value(false), "Enable login GUI when encountering reCAPTCHA on login form")
 #endif
-            ("list-tags", bpo::value<bool>(&Globals::globalConfig.bListTags)->zero_tokens()->default_value(false), "List tags")
             ("tag", bpo::value<std::string>(&tags)->default_value(""), "Filter using tags. Separate with \",\" to use multiple values")
         ;
         // Commandline options (config file)
@@ -283,6 +290,7 @@ int main(int argc, char *argv[])
             ("include-hidden-products", bpo::value<bool>(&Globals::globalConfig.bIncludeHiddenProducts)->zero_tokens()->default_value(false), "Include games that have been set hidden in account page")
             ("size-only", bpo::value<bool>(&Globals::globalConfig.bSizeOnly)->zero_tokens()->default_value(false), "Don't check the hashes of the files whose size matches that on the server")
             ("verbosity", bpo::value<int>(&Globals::globalConfig.iMsgLevel)->default_value(0), "Set message verbosity level\n -1 = Less verbose\n 0 = Default\n 1 = Verbose\n 2 = Debug")
+            ("check-free-space", bpo::value<bool>(&Globals::globalConfig.dlConf.bFreeSpaceCheck)->zero_tokens()->default_value(false), "Check for available free space before starting download")
         ;
 
         options_cli_no_cfg_hidden.add_options()
@@ -327,6 +335,11 @@ int main(int argc, char *argv[])
         {
             std::cout << VERSION_STRING << std::endl;
             return 0;
+        }
+
+        if (vm.count("list"))
+        {
+            bList = true;
         }
 
         // Create lgogdownloader directories
@@ -572,6 +585,8 @@ int main(int argc, char *argv[])
         Globals::globalConfig.dlConf.bPatches = (Globals::globalConfig.dlConf.iInclude & OPTION_PATCHES);
         Globals::globalConfig.dlConf.bLanguagePacks = (Globals::globalConfig.dlConf.iInclude & OPTION_LANGPACKS);
         Globals::globalConfig.dlConf.bDLC = (Globals::globalConfig.dlConf.iInclude & OPTION_DLCS);
+
+        Globals::globalConfig.iListFormat = Util::getOptionValue(sListFormat, GlobalConstants::LIST_FORMAT, false);
     }
     catch (std::exception& e)
     {
@@ -635,35 +650,35 @@ int main(int argc, char *argv[])
 
     // Init curl globally
     curl_global_init(CURL_GLOBAL_ALL);
+    struct CurlCleanup { ~CurlCleanup() { curl_global_cleanup(); } };
+    CurlCleanup _curl_cleanup;
 
-    Downloader *downloader = new Downloader;
+    Downloader downloader;
 
     int iLoginTries = 0;
     bool bLoginOK = false;
 
     // Login because --login was used
     if (Globals::globalConfig.bLogin)
-        bLoginOK = downloader->login();
+        bLoginOK = downloader.login();
 
-    bool bIsLoggedin = downloader->isLoggedIn();
+    bool bIsLoggedin = downloader.isLoggedIn();
     if (!bIsLoggedin)
         Globals::globalConfig.bLogin = true;
 
     // Login because we are not logged in
     while (iLoginTries++ < Globals::globalConfig.iRetries && !bIsLoggedin)
     {
-        bLoginOK = downloader->login();
+        bLoginOK = downloader.login();
         if (bLoginOK)
         {
-            bIsLoggedin = downloader->isLoggedIn();
+            bIsLoggedin = downloader.isLoggedIn();
         }
     }
 
     // Login failed, cleanup
     if (!bLoginOK && !bIsLoggedin)
     {
-        delete downloader;
-        curl_global_cleanup();
         return 1;
     }
 
@@ -726,16 +741,12 @@ int main(int argc, char *argv[])
                 Util::setFilePermissions(Globals::globalConfig.sConfigFilePath, boost::filesystem::owner_read | boost::filesystem::owner_write);
             if (Globals::globalConfig.bSaveConfig)
             {
-                delete downloader;
-                curl_global_cleanup();
                 return 0;
             }
         }
         else
         {
             std::cerr << "Failed to create config: " << Globals::globalConfig.sConfigFilePath << std::endl;
-            delete downloader;
-            curl_global_cleanup();
             return 1;
         }
     }
@@ -748,56 +759,48 @@ int main(int argc, char *argv[])
             if (!Globals::globalConfig.bRespectUmask)
                 Util::setFilePermissions(Globals::globalConfig.sConfigFilePath, boost::filesystem::owner_read | boost::filesystem::owner_write);
 
-            delete downloader;
-            curl_global_cleanup();
             return 0;
         }
         else
         {
             std::cerr << "Failed to create config: " << Globals::globalConfig.sConfigFilePath << std::endl;
-            delete downloader;
-            curl_global_cleanup();
             return 1;
         }
     }
 
-    bool bInitOK = downloader->init();
+    bool bInitOK = downloader.init();
     if (!bInitOK)
     {
-        delete downloader;
-        curl_global_cleanup();
         return 1;
     }
 
     int res = 0;
 
     if (Globals::globalConfig.bShowWishlist)
-        downloader->showWishlist();
+        downloader.showWishlist();
     else if (Globals::globalConfig.bUpdateCache)
-        downloader->updateCache();
+        downloader.updateCache();
     else if (Globals::globalConfig.bNotifications)
-        downloader->checkNotifications();
+        downloader.checkNotifications();
     else if (bClearUpdateNotifications)
-        downloader->clearUpdateNotifications();
+        downloader.clearUpdateNotifications();
     else if (!vFileIdStrings.empty())
     {
         for (std::vector<std::string>::iterator it = vFileIdStrings.begin(); it != vFileIdStrings.end(); it++)
         {
-            res |= downloader->downloadFileWithId(*it, Globals::globalConfig.sOutputFilename) ? 1 : 0;
+            res |= downloader.downloadFileWithId(*it, Globals::globalConfig.sOutputFilename) ? 1 : 0;
         }
     }
     else if (Globals::globalConfig.bRepair) // Repair file
-        downloader->repair();
+        downloader.repair();
     else if (Globals::globalConfig.bDownload) // Download games
-        downloader->download();
-    else if (Globals::globalConfig.bListDetails || Globals::globalConfig.bList) // Detailed list of games/extras
-        res = downloader->listGames();
-    else if (Globals::globalConfig.bListTags) // List tags
-        res = downloader->listTags();
+        downloader.download();
+    else if (bList) // List games/extras/tags
+        res = downloader.listGames();
     else if (!Globals::globalConfig.sOrphanRegex.empty()) // Check for orphaned files if regex for orphans is set
-        downloader->checkOrphans();
+        downloader.checkOrphans();
     else if (Globals::globalConfig.bCheckStatus)
-        downloader->checkStatus();
+        downloader.checkStatus();
     else if (!galaxy_product_id_show_builds.empty())
     {
         int build_index = -1;
@@ -807,7 +810,7 @@ int main(int argc, char *argv[])
         {
             build_index = std::stoi(tokens[1]);
         }
-        downloader->galaxyShowBuilds(product_id, build_index);
+        downloader.galaxyShowBuilds(product_id, build_index);
     }
     else if (!galaxy_product_id_show_cloud_paths.empty())
     {
@@ -818,7 +821,7 @@ int main(int argc, char *argv[])
         {
             build_index = std::stoi(tokens[1]);
         }
-        downloader->galaxyShowCloudSaves(product_id, build_index);
+        downloader.galaxyShowCloudSaves(product_id, build_index);
     }
     else if (!galaxy_product_id_show_local_cloud_paths.empty())
     {
@@ -829,7 +832,7 @@ int main(int argc, char *argv[])
         {
             build_index = std::stoi(tokens[1]);
         }
-        downloader->galaxyShowLocalCloudSaves(product_id, build_index);
+        downloader.galaxyShowLocalCloudSaves(product_id, build_index);
     }
     else if (!galaxy_product_cloud_saves_delete.empty())
     {
@@ -840,7 +843,7 @@ int main(int argc, char *argv[])
         {
             build_index = std::stoi(tokens[1]);
         }
-        downloader->deleteCloudSaves(product_id, build_index);
+        downloader.deleteCloudSaves(product_id, build_index);
     }
     else if (!galaxy_product_id_install.empty())
     {
@@ -851,7 +854,7 @@ int main(int argc, char *argv[])
         {
             build_index = std::stoi(tokens[1]);
         }
-        downloader->galaxyInstallGame(product_id, build_index, Globals::globalConfig.dlConf.iGalaxyArch);
+        downloader.galaxyInstallGame(product_id, build_index, Globals::globalConfig.dlConf.iGalaxyArch);
     }
     else if (!galaxy_product_cloud_saves.empty()) {
         int build_index = -1;
@@ -861,7 +864,7 @@ int main(int argc, char *argv[])
         {
             build_index = std::stoi(tokens[1]);
         }
-        downloader->downloadCloudSaves(product_id, build_index);
+        downloader.downloadCloudSaves(product_id, build_index);
     }
     else if (!galaxy_upload_product_cloud_saves.empty()) {
         int build_index = -1;
@@ -871,7 +874,7 @@ int main(int argc, char *argv[])
         {
             build_index = std::stoi(tokens[1]);
         }
-        downloader->uploadCloudSaves(product_id, build_index);
+        downloader.uploadCloudSaves(product_id, build_index);
     }
     else
     {
@@ -885,10 +888,7 @@ int main(int argc, char *argv[])
 
     // Orphan check was called at the same time as download. Perform it after download has finished
     if (!Globals::globalConfig.sOrphanRegex.empty() && Globals::globalConfig.bDownload)
-        downloader->checkOrphans();
-
-    delete downloader;
-    curl_global_cleanup();
+        downloader.checkOrphans();
 
     return res;
 }
